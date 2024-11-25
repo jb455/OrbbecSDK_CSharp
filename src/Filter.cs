@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace Orbbec
@@ -9,20 +8,15 @@ namespace Orbbec
     public class Filter : IDisposable
     {
         protected NativeHandle _handle;
-        // private FilterCallback _callback;
-        private static Dictionary<IntPtr, FilterCallback> _filterCallbacks = new Dictionary<IntPtr, FilterCallback>();
+        private FilterCallback _callback;
         private NativeFilterCallback _nativeCallback;
 
-#if ORBBEC_UNITY
-        [AOT.MonoPInvokeCallback(typeof(FilterCallback))]
-#endif
-        private static void OnFilter(IntPtr framePtr, IntPtr userData)
+        private void OnFilter(IntPtr framePtr, IntPtr userData)
         {
             Frame frame = new Frame(framePtr);
-            _filterCallbacks.TryGetValue(userData, out FilterCallback callback);
-            if (callback != null)
+            if(_callback != null)
             {
-                callback(frame);
+                _callback(frame);
             }
             else
             {
@@ -41,6 +35,17 @@ namespace Orbbec
             _nativeCallback = new NativeFilterCallback(OnFilter);
         }
 
+        internal Filter CreatePrivateFilter(String name, String activationKey)
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr handle = obNative.ob_create_private_filter(name, activationKey, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return new Filter(handle);
+        }
+
         /**
         * \if English
         * @brief filter reset, free the internal cache, stop the processing thread and clear the pending buffer frame when asynchronous processing
@@ -52,7 +57,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_filter_reset(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -95,10 +100,10 @@ namespace Orbbec
         */
         public void SetCallback(FilterCallback callback)
         {
-            _filterCallbacks[_handle.Ptr] = callback;
+            _callback = callback;
             IntPtr error = IntPtr.Zero;
-            obNative.ob_filter_set_callback(_handle.Ptr, _nativeCallback, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
+            obNative.ob_filter_set_callback(_handle.Ptr, _nativeCallback, IntPtr.Zero, ref error);
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -119,30 +124,95 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_filter_push_frame(_handle.Ptr, frame.GetNativeHandle().Ptr, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
         }
 
-        public string GetName()
+        /**
+        * \if English
+        * @brief Get the enable status of the frame post processing
+        *
+        * @return bool The post processing filter status. True: enable; False: disable
+        * \else
+        * @brief 获取帧后处理的启用状态
+        * 
+        * @return bool 后处理filter状态。True：启用；错误：禁用
+        * \endif
+        */
+        public bool IsEnable()
         {
             IntPtr error = IntPtr.Zero;
-            IntPtr namePtr = obNative.ob_get_filter_name(_handle.Ptr, ref error);
+            bool res = obNative.ob_filter_is_enabled(_handle.Ptr, ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
+            return res;
+        }
 
-            // TODO: check charset
-            return Marshal.PtrToStringAnsi(namePtr);
+        public String GetName()
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr ptr = obNative.ob_filter_get_name(_handle.Ptr, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return Marshal.PtrToStringAnsi(ptr);
+        }
+
+        public static String GetVendorSpecificCode(String name)
+        {
+            IntPtr error = IntPtr.Zero;
+            String res = obNative.ob_filter_get_vendor_specific_code(name, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return res;
+        }
+
+        public String GetConfigSchema()
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr ptr = obNative.ob_filter_get_config_schema(_handle.Ptr, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return Marshal.PtrToStringAnsi(ptr);
+        }
+
+        public FilterConfigSchemaList GetConfigSchemaList()
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr handle = obNative.ob_filter_get_config_schema_list(_handle.Ptr, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return new FilterConfigSchemaList(handle);
+        }
+
+
+
+        public void UpdateConfig(UInt16 argc, String argv)
+        {
+            IntPtr error = IntPtr.Zero;
+            obNative.ob_filter_update_config(_handle.Ptr, argc, argv, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
         }
 
         internal void Delete(IntPtr handle)
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_delete_filter(handle, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -152,39 +222,6 @@ namespace Orbbec
         {
             _handle.Dispose();
         }
-
-        public bool Enabled
-        {
-            get
-            {
-                return IsEnabled();
-            }
-            set
-            {
-                Enable(value);
-            }
-        }
-
-        internal void Enable(bool enabled)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_filter_enable(_handle.Ptr, enabled, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-
-        internal bool IsEnabled()
-        {
-            IntPtr error = IntPtr.Zero;
-            bool isEnabled = obNative.ob_filter_is_enable(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return isEnabled;
-        }
     }
 
     public class PointCloudFilter : Filter
@@ -192,8 +229,9 @@ namespace Orbbec
         public PointCloudFilter()
         {
             IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_pointcloud_filter(ref error);
-            if (error != IntPtr.Zero)
+            //IntPtr handle = obNative.ob_create_pointcloud_filter(ref error);
+            IntPtr handle = obNative.ob_create_filter("PointCloudFilter", ref error);
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -211,11 +249,12 @@ namespace Orbbec
         * @param param 相机内外参数
         * \endif
         */
+        [Obsolete]
         public void SetCameraParam(CameraParam cameraParam)
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_pointcloud_filter_set_camera_param(_handle.Ptr, cameraParam, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -232,10 +271,11 @@ namespace Orbbec
         * @param type 点云类型深度点云或RGBD点云
         * \endif
         */
-        public void SetPointFormat(Format format)
+        public void SetCreatePointFormat(Format format)
         {
             IntPtr error = IntPtr.Zero;
-            obNative.ob_pointcloud_filter_set_point_format(_handle.Ptr, format, ref error);
+            //obNative.ob_pointcloud_filter_set_point_format(_handle.Ptr, format, ref error);
+            obNative.ob_filter_set_config_value(_handle.Ptr, "pointFormat", (Double) format, ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
@@ -258,7 +298,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_pointcloud_filter_set_frame_align_state(_handle.Ptr, state, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -284,8 +324,9 @@ namespace Orbbec
         public void SetPositionDataScaled(float scale)
         {
             IntPtr error = IntPtr.Zero;
-            obNative.ob_pointcloud_filter_set_position_data_scale(_handle.Ptr, scale, ref error);
-            if (error != IntPtr.Zero)
+            //obNative.ob_pointcloud_filter_set_position_data_scale(_handle.Ptr, scale, ref error);
+            obNative.ob_filter_set_config_value(_handle.Ptr, "coordinateDataScale", scale, ref error);
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -306,7 +347,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_pointcloud_filter_set_color_data_normalization(_handle.Ptr, state, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -327,7 +368,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_pointcloud_filter_set_coordinate_system(_handle.Ptr, type, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -339,8 +380,8 @@ namespace Orbbec
         public FormatConvertFilter()
         {
             IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_format_convert_filter(ref error);
-            if (error != IntPtr.Zero)
+            IntPtr handle = obNative.ob_create_filter("FormatConverter", ref error);
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -362,7 +403,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_format_convert_filter_set_format(_handle.Ptr, format, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -375,7 +416,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             IntPtr handle = obNative.ob_create_compression_filter(ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -399,7 +440,7 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             obNative.ob_compression_filter_set_compression_params(_handle.Ptr, mode, param, ref error);
-            if (error != IntPtr.Zero)
+            if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
@@ -412,6 +453,20 @@ namespace Orbbec
         {
             IntPtr error = IntPtr.Zero;
             IntPtr handle = obNative.ob_create_decompression_filter(ref error);
+            if(error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            _handle = new NativeHandle(handle, Delete);
+        }
+    }
+
+    public class HDRMergeFilter : Filter
+    {
+        public HDRMergeFilter()
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr handle = obNative.ob_create_filter("HDRMerge", ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
@@ -420,12 +475,12 @@ namespace Orbbec
         }
     }
 
-    public class HoleFillingFilter : Filter
+    public class AlignFilter : Filter
     {
-        public HoleFillingFilter()
+        public AlignFilter()
         {
             IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_holefilling_filter(ref error);
+            IntPtr handle = obNative.ob_create_filter("Align", ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
@@ -433,496 +488,25 @@ namespace Orbbec
             _handle = new NativeHandle(handle, Delete);
         }
 
-        public HoleFillingMode GetMode()
+        public void SetAlignMode(StreamType mode)
         {
             IntPtr error = IntPtr.Zero;
-            var mode = obNative.ob_holefilling_filter_get_mode(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return mode;
-        }
-
-        public void SetMode(HoleFillingMode holeFillingMode)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_holefilling_filter_set_mode(_handle.Ptr, holeFillingMode, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class TemporalFilter : Filter
-    {
-        public TemporalFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_temporal_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public FloatPropertyRange GetDiffscaleRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_temporal_filter_get_diffscale_range(out FloatPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public void SetDiffscaleValue(float value)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_temporal_filter_set_diffscale_value(_handle.Ptr, value, ref error);
+            obNative.ob_filter_set_config_value(_handle.Ptr, "AlignType", (double) mode, ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
         }
 
-        public FloatPropertyRange GetWeightRange()
+        public StreamType GetAlignMode()
         {
             IntPtr error = IntPtr.Zero;
-            obNative.ob_temporal_filter_get_weight_range(out FloatPropertyRange range, _handle.Ptr, ref error);
+            double mode = obNative.ob_filter_get_config_value(_handle.Ptr, "AlignType", ref error);
             if (error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
             }
-            return range;
-        }
-
-        public void SetWeightValue(float value)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_temporal_filter_set_weight_value(_handle.Ptr, value, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class SpatialAdvancedFilter : Filter
-    {
-        public SpatialAdvancedFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_spatial_advanced_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public FloatPropertyRange GetAlphaRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_get_alpha_range(out FloatPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public UInt16PropertyRange GetDispDiffRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_get_disp_diff_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public UInt16PropertyRange GetRadiusRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_get_radius_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public IntPropertyRange GetMagnitudeRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_get_magnitude_range(out IntPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public SpatialAdvancedFilterParams GetFilterParams()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_get_filter_params(out SpatialAdvancedFilterParams filterParams, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return filterParams;
-        }
-
-        public void SetFilterParams(SpatialAdvancedFilterParams filterParams)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_spatial_advanced_filter_set_filter_params(_handle.Ptr, filterParams, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class NoiseRemovalFilter : Filter
-    {
-        public NoiseRemovalFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_noise_removal_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public UInt16PropertyRange GetDispDiffRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_noise_removal_filter_get_disp_diff_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public IntPropertyRange GetMaxSizeRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_noise_removal_filter_get_max_size_range(out IntPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public NoiseRemovalFilterParams GetFilterParams()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_noise_removal_filter_get_filter_params(out NoiseRemovalFilterParams filterParams, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return filterParams;
-        }
-
-        public void SetFilterParams(NoiseRemovalFilterParams filterParams)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_noise_removal_filter_set_filter_params(_handle.Ptr, filterParams, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class EdgeNoiseRemovalFilter : Filter
-    {
-        public EdgeNoiseRemovalFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_edge_noise_removal_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public UInt16PropertyRange GetMarginLeftThRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_get_margin_left_th_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-        public UInt16PropertyRange GetMarginRightThRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_get_margin_right_th_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-        public UInt16PropertyRange GetMarginTopThRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_get_margin_top_th_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-        public UInt16PropertyRange GetMarginBottomThRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_get_margin_bottom_th_range(out UInt16PropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public EdgeNoiseRemovalFilterParams GetFilterParams()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_get_filter_params(out EdgeNoiseRemovalFilterParams filterParams, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return filterParams;
-        }
-
-        public void SetFilterParams(EdgeNoiseRemovalFilterParams filterParams)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_edge_noise_removal_filter_set_filter_params(_handle.Ptr, filterParams, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class DecimationFilter : Filter
-    {
-        public DecimationFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_decimation_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public UInt8PropertyRange GetScaleRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            UInt8PropertyRange range = obNative.ob_decimation_filter_get_scale_range(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public void SetScaleValue(byte value)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_decimation_filter_set_scale_value(_handle.Ptr, value, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-
-        public byte GetScaleValue()
-        {
-            IntPtr error = IntPtr.Zero;
-            byte value = obNative.ob_decimation_filter_get_scale_value(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return value;
-        }
-    }
-
-    public class ThresholdFilter : Filter
-    {
-        public ThresholdFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_threshold_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public IntPropertyRange GetMinRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_threshold_filter_get_min_range(out IntPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public IntPropertyRange GetMaxRange()
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_threshold_filter_get_max_range(out IntPropertyRange range, _handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return range;
-        }
-
-        public void SetScaleValue(UInt16 min, UInt16 max)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_threshold_filter_set_scale_value(_handle.Ptr, min, max, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-    }
-
-    public class SequenceIdFilter : Filter
-    {
-        public SequenceIdFilter()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_sequenceId_filter(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public void SelectSequenceId(int sequenceId)
-        {
-            IntPtr error = IntPtr.Zero;
-            obNative.ob_sequence_id_filter_select_sequence_id(_handle.Ptr, sequenceId, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-        }
-
-        public int GetSequenceId()
-        {
-            IntPtr error = IntPtr.Zero;
-            int sequenceId = obNative.ob_sequence_id_filter_get_sequence_id(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return sequenceId;
-        }
-
-        // TODO: make this return (an array of?) SequenceIdItem instead
-        public IntPtr GetSequenceIdList()
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr sequenceIdList = obNative.ob_sequence_id_filter_get_sequence_id_list(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return sequenceIdList;
-        }
-
-        public int GetSequenceIdListSize()
-        {
-            IntPtr error = IntPtr.Zero;
-            int sequenceIdListSize = obNative.ob_sequence_id_filter_get_sequence_id_list_size(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return sequenceIdListSize;
-        }
-    }
-
-    public class HdrMerge : Filter
-    {
-        public HdrMerge(bool depthToDisparity)
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_hdr_merge(ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-    }
-
-    public class Align : Filter
-    {
-        public Align(StreamType alignToStream)
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_align(ref error, alignToStream);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
-        }
-
-        public StreamType GetAlignToStreamType()
-        {
-            IntPtr error = IntPtr.Zero;
-            StreamType streamType = obNative.ob_align_get_to_stream_type(_handle.Ptr, ref error);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            return streamType;
-        }
-    }
-
-    public class DisparityTransform : Filter
-    {
-        public DisparityTransform(bool depthToDisparity)
-        {
-            IntPtr error = IntPtr.Zero;
-            IntPtr handle = obNative.ob_create_disparity_transform(ref error, depthToDisparity);
-            if (error != IntPtr.Zero)
-            {
-                throw new NativeException(new Error(error));
-            }
-            _handle = new NativeHandle(handle, Delete);
+            return (StreamType) mode;
         }
     }
 }

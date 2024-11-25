@@ -109,10 +109,10 @@ namespace PostProcessing
                                 for (uint i = 1; i < filterList.Count(); i++)
                                 {
                                     var filter = filterList.GetFilter(i);
-                                    if(filter.Enabled)
-                                    {
+                                    //if(filter.Enabled)
+                                    //{
                                         depthFrame = filter.Process(depthFrame).As<DepthFrame>();
-                                    }
+                                    //}
                                 }
                                 Dispatcher.Invoke(DispatcherPriority.Render, updateDepth, depthFrame);
                             }
