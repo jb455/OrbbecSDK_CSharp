@@ -9,19 +9,15 @@ namespace Orbbec
     public class Sensor : IDisposable
     {
         private NativeHandle _handle;
-        private static Dictionary<IntPtr, FrameCallback> _frameCallbacks = new Dictionary<IntPtr, FrameCallback>();
+        private FrameCallback _callback;
         private NativeFrameCallback _nativeCallback;
 
-#if ORBBEC_UNITY
-        [AOT.MonoPInvokeCallback(typeof(FrameCallback))]
-#endif
         private void OnFrame(IntPtr framePtr, IntPtr userData)
         {
             Frame frame = new Frame(framePtr);
-            _frameCallbacks.TryGetValue(userData, out FrameCallback callback);
-            if(callback != null)
+            if(_callback != null)
             {
-                callback(frame);
+                _callback(frame);
             }
             else
             {
@@ -110,9 +106,9 @@ namespace Orbbec
         */
         public void Start(StreamProfile streamProfile, FrameCallback callback)
         {
-            _frameCallbacks[_handle.Ptr] = callback;
+            _callback = callback;
             IntPtr error = IntPtr.Zero;
-            obNative.ob_sensor_start(_handle.Ptr, streamProfile.GetNativeHandle().Ptr, _nativeCallback, _handle.Ptr, ref error);
+            obNative.ob_sensor_start(_handle.Ptr, streamProfile.GetNativeHandle().Ptr, _nativeCallback, IntPtr.Zero, ref error);
             if(error != IntPtr.Zero)
             {
                 throw new NativeException(new Error(error));
@@ -155,6 +151,17 @@ namespace Orbbec
             {
                 throw new NativeException(new Error(error));
             }
+        }
+
+        public RecommendedFilterList CreateRecommendedFilters()
+        {
+            IntPtr error = IntPtr.Zero;
+            IntPtr handle = obNative.ob_sensor_create_recommended_filter_list(_handle.Ptr, ref error);
+            if (error != IntPtr.Zero)
+            {
+                throw new NativeException(new Error(error));
+            }
+            return new RecommendedFilterList(handle);
         }
 
         internal void Delete(IntPtr handle)
